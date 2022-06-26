@@ -1,0 +1,4 @@
+<pur:PurchaseOrder OrderDate="2008-09-28" xmlns:pur="http://tempuri.org/PurchaseOrderSchema.xsd">
+  <!--1 to 2 repetitions:-->
+  <test>aa</test>
+</pur:PurchaseOrder>

@@ -1,0 +1,62 @@
+
+USE validator1;
+CREATE APPLICATION SchemaValidatorV1;
+
+CREATE OR REPLACE STREAM RawTextStream OF Global.WAEvent;
+
+CREATE STREAM ValidatedPayloadStream OF Global.WAEvent;
+
+CREATE OR REPLACE SOURCE SrcKafkaReader USING Global.KafkaReader VERSION '2.1.0' ( 
+  AutoMapPartition: true, 
+  KafkaConfig: 'max.partition.fetch.bytes=10485760;fetch.min.bytes=1048576;fetch.max.wait.ms=1000;receive.buffer.bytes=2000000;poll.timeout.ms=10000;request.timeout.ms=60001;session.timeout.ms=60000;value.deserializer=com.striim.avro.deserializer.SingleRecordAvroRecordDeserializer;group.id=txtpoc;client.id=testpoc;', 
+  KafkaConfigValueSeparator: '=', 
+  Topic: 'SRC_EDIS_TXT4', 
+  KafkaConfigPropertySeparator: ';', 
+  startOffset: '-1', 
+  adapterName: 'KafkaReader', 
+  brokerAddress: 'wk-vm-01.eastus.cloudapp.azure.com:9093' ) 
+PARSE USING Global.FreeFormTextParser ( 
+  RecordEnd: 'z', 
+  charset: 'UTF-8', 
+  parserName: 'FreeFormTextParser', 
+  handler: 'com.webaction.proc.FreeFormTextParser_1_0', 
+  ignoremultiplerecordbegin: 'true', 
+  blockascompleterecord: false, 
+  separator: '~', 
+  RecordBegin: 'a' ) 
+OUTPUT TO RawTextStream;
+
+CREATE CQ CqAddHeader 
+INSERT INTO RawTextWithCustomeHeaderStream 
+select putUserData(x, 'source', 'kafka') from RawTextStream x;;
+
+CREATE OR REPLACE TARGET TgtKafkaWrite USING Global.KafkaWriter VERSION '2.1.0'( 
+  Topic: 'TXT_OUT4', 
+  KafkaConfigValueSeparator: '=', 
+  MessageKey: '', 
+  adapterName: 'KafkaWriter', 
+  MessageHeader: '', 
+  KafkaConfigPropertySeparator: ';', 
+  Mode: 'Sync', 
+  KafkaConfig: 'request.timeout.ms=60001;session.timeout.ms=60000', 
+  brokerAddress: 'wk-vm-01.eastus.cloudapp.azure.com:9093' ) 
+FORMAT USING Global.DSVFormatter  ( 
+  quotecharacter: '\"', 
+  handler: 'com.webaction.proc.DSVFormatter', 
+  columndelimiter: ',', 
+  formatterName: 'DSVFormatter', 
+  nullvalue: 'NULL', 
+  usequotes: 'false', 
+  rowdelimiter: '\n', 
+  standard: 'none', 
+  header: 'false' ) 
+INPUT FROM ValidatedPayloadStream;
+
+CREATE OR REPLACE OPEN PROCESSOR OpSchemaValidator USING Global.SchemaValidatorOpV4 (
+  schemaFileDir: '/Users/tushar/workspaces/OSS/striim-validator-op/src/test/schema/', 
+  schemaFileName: 'purchase_order.xsd' ) 
+INSERT INTO ValidatedPayloadStream
+FROM RawTextWithCustomeHeaderStream;
+
+END APPLICATION SchemaValidatorV1;
+
